@@ -8,13 +8,7 @@ from duckduckgo_search import DDGS
 from langchain_openai import ChatOpenAI
 import os
 import csv
-import re
 import json
-
-# === Load PDF ===
-loader = PyPDFLoader("./pdfs/sample.pdf")  # Replace with your file path
-pages = loader.load()
-pdf_text = " ".join([page.page_content for page in pages])
 
 # === Tool: Get PDF content ===
 @tool
@@ -69,10 +63,11 @@ agent = initialize_agent(
 output_csv = "output.csv"
 pdfs_folder = "./pdfs"
 
-# Prepare CSV file with updated headers
-with open(output_csv, mode="w", newline="", encoding="utf-8") as file:
-    writer = csv.writer(file)
-    writer.writerow(["product_name", "current_sds_version", "current_sds_date", "latest_sds_url", "latest_sds_version", "latest_sds_date"])
+# Prepare CSV file with updated headers only if it doesn't exist
+if not os.path.exists(output_csv):
+    with open(output_csv, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["product_name", "manufacturer_supplier", "current_sds_version", "current_sds_date", "latest_sds_url", "latest_sds_version", "latest_sds_date"])
 
 # Process each PDF file
 for pdf_file in os.listdir(pdfs_folder):
@@ -115,28 +110,39 @@ for pdf_file in os.listdir(pdfs_folder):
         product_info = response1["output"].strip()
         memory.chat_memory.add_user_message(f"Product information: {product_info}")
 
+        # Sanitize product_info to escape double quotes
+        sanitized_product_info = product_info.replace('"', '\"')
+
+        # Debug: Log sanitized_product_info before invoking the agent
+        print(f"\n🔍 Debug: Sanitized product info: {sanitized_product_info}")
+
         # === Step 2: Follow-up (use memory) ===
         print("\n🧠 Step 2: Searching for information...")
-        response2 = agent.invoke({
-            "input": f"""use duckduckgo_search to find information about {product_info}. 
-            Find the newest version of SDS URL and return it in JSON format:
-            {{
-                \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
-                \"latest_sds_version\": \"(e.g., 2.0)\",
-                \"latest_sds_date\": \"(e.g., 27 October 2015)\",
-            }}
-            If one or some data is not available, just fill with empty string. 
-            Return the response as a string, not a JSON object."""
-        })
+        try:
+            response2 = agent.invoke({
+                "input": f"""use duckduckgo_search to find information about {sanitized_product_info}. 
+                Find the newest version of SDS URL and return it in JSON format:
+                {{
+                    \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
+                    \"latest_sds_version\": \"(e.g., 2.0)\",
+                    \"latest_sds_date\": \"(e.g., 27 October 2015)\",
+                }}
+                If one or some data is not available, just fill with empty string. 
+                Return the response as a string, not a JSON object."""
+            })
+        except Exception as e:
+            print(f"Error during agent invocation for file {pdf_file}: {e}")
+            continue
+
         print("\n📝 Response 2:\n", response2["output"])
 
         # === Optional: View memory log ===
-        print("\n📜 Agent Memory:\n", memory.buffer)
+        # print("\n📜 Agent Memory:\n", memory.buffer)
 
-        # Write to CSV
+        # Parse product_info JSON
         try:
-            # Parse product_info JSON
             product_info_dict = json.loads(product_info)
+            manufacturer_supplier = product_info_dict.get("manufacturer_supplier", "")
             product_name = product_info_dict.get("product_name", "")
             current_sds_version = product_info_dict.get("current_sds_version", "N/A")
             current_sds_date = product_info_dict.get("current_sds_date", "N/A")  # Assuming this field contains the date
@@ -147,10 +153,15 @@ for pdf_file in os.listdir(pdfs_folder):
             latest_sds_version = response2_dict.get("latest_sds_version", "")
             latest_sds_date = response2_dict.get("latest_sds_date", "")
 
+            # Debug: Log data before attempting to write to CSV
+            print(f"\n🔍 Debug: Preparing to write to CSV: {product_name}, {manufacturer_supplier}, {current_sds_version}, {current_sds_date}, {latest_sds_url}, {latest_sds_version}, {latest_sds_date}")
+
+            # Write to CSV
             with open(output_csv, mode="a", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
                 writer.writerow([
                     product_name,
+                    manufacturer_supplier,
                     current_sds_version,
                     current_sds_date,
                     latest_sds_url,
@@ -159,5 +170,8 @@ for pdf_file in os.listdir(pdfs_folder):
                 ])
         except Exception as e:
             print(f"Error writing to CSV for file {pdf_file}: {e}")
+
+        # Clear agent memory after processing the current PDF file
+        memory.chat_memory.clear()
 
 print(f"\n✅ Processing complete. Results saved to {output_csv}")
