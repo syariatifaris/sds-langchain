@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 import os
 
 # === Load PDF ===
-loader = PyPDFLoader("./pdfs/CareLineToiletrens.pdf")  # Replace with your file path
+loader = PyPDFLoader("./pdfs/sample.pdf")  # Replace with your file path
 pages = loader.load()
 pdf_text = " ".join([page.page_content for page in pages])
 
