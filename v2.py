@@ -75,114 +75,141 @@ for pdf_file in os.listdir(pdfs_folder):
     if pdf_file.endswith(".pdf"):
         pdf_path = os.path.join(pdfs_folder, pdf_file)
 
+        response1 = {
+            "output": json.dumps({
+                "product_code": "",
+                "product_name": "",
+                "manufacturer_supplier": "",
+                "product_item_number": "",
+                "ufi_code": "",
+                "current_sds_version": "",
+                "current_sds_date": "",
+                "language_country": "",
+                "intended_use": ""
+            })
+        }
+        product_info = response1["output"].strip()
+
+        response2 = {
+            "output": json.dumps({
+                "latest_sds_url": "",
+                "latest_sds_version": "",
+                "latest_sds_date": ""
+            })
+        }
+
+        isPDFValid = False
+        
         try:
             # Load PDF content
             loader = PyPDFLoader(pdf_path)
             pages = loader.load()
             pdf_text = " ".join([page.page_content for page in pages])
+            isPDFValid = True
         except Exception as e:
             print(f"🚨 Error loading PDF {pdf_file}: {e}")
-            continue
+            isPDFValid = False
 
-        # Update the get_pdf_content tool to use the current PDF content
-        @tool
-        def get_pdf_content() -> str:
-            """Returns the entire PDF content."""
-            return pdf_text
+        if isPDFValid:
+            # Update the get_pdf_content tool to use the current PDF content
+            @tool
+            def get_pdf_content() -> str:
+                """Returns the entire PDF content."""
+                return pdf_text
 
-        # === Step 1: Extract Product Information ===
-        print(f"\n🧠 Processing file: {pdf_file}")
-        print("\n🧠 Step 1: Extracting product information...")
+            # === Step 1: Extract Product Information ===
+            print(f"\n🧠 Processing file: {pdf_file}")
+            print("\n🧠 Step 1: Extracting product information...")
 
-        # Skipped if already has the json
-        json_filename = os.path.splitext(pdf_file)[0] + "_1.json"
-        json_path = os.path.join(json_folder, json_filename)
-        sanitized_product_info = ""
+            # Skipped if already has the json
+            json_filename = os.path.splitext(pdf_file)[0] + "_1.json"
+            json_path = os.path.join(json_folder, json_filename)
+            sanitized_product_info = ""
 
-        if not os.path.exists(json_path):
+            if not os.path.exists(json_path):
 
-            response1 = agent.invoke({
-                "input": """First, read the document. Then find the potential product information corresponding to the document. 
-                The document is an SDS document, written in Danish. Write a response in JSON format such as:
-                {
-                    \"product_code\": \"(e.g., ABC)\",
-                    \"product_name\": \"(e.g., Orius 200 EW)\",
-                    \"manufacturer_supplier\": \"(e.g., ADAMA)\",
-                    \"product_item_number\": \"16114071\",
-                    \"ufi_code\": \"(e.g., XXXX-XXXX-XXXX-XXXX)\",
-                    \"current_sds_version\": \"(e.g., 1.0)\",
-                    \"current_sds_date\": \"(e.g., 27 October 2015)\",
-                    \"language_country\": \"(e.g., Danish / Denmark)\",
-                    \"intended_use\": \"(e.g., Herbicide for cereal crops)\"
-                }
-                If one or some data is not available, just fill with empty string. Return the response as a string, not a JSON object."""
-            })
-            print("\n📝 Response 1:\n", response1["output"])
+                response1 = agent.invoke({
+                    "input": """First, read the document. Then find the potential product information corresponding to the document. 
+                    The document is an SDS document, written in Danish. Write a response in JSON format such as:
+                    {
+                        \"product_code\": \"(e.g., ABC)\",
+                        \"product_name\": \"(e.g., Orius 200 EW)\",
+                        \"manufacturer_supplier\": \"(e.g., ADAMA)\",
+                        \"product_item_number\": \"16114071\",
+                        \"ufi_code\": \"(e.g., XXXX-XXXX-XXXX-XXXX)\",
+                        \"current_sds_version\": \"(e.g., 1.0)\",
+                        \"current_sds_date\": \"(e.g., 27 October 2015)\",
+                        \"language_country\": \"(e.g., Danish / Denmark)\",
+                        \"intended_use\": \"(e.g., Herbicide for cereal crops)\"
+                    }
+                    If one or some data is not available, just fill with empty string. Return the response as a string, not a JSON object."""
+                })
+                print("\n📝 Response 1:\n", response1["output"])
 
-            # Store the product information
-            product_info = response1["output"].strip()
-            memory.chat_memory.add_user_message(f"Product information: {product_info}")
+                # Store the product information
+                product_info = response1["output"].strip()
+                memory.chat_memory.add_user_message(f"Product information: {product_info}")
 
-            # Sanitize product_info to escape double quotes
-            sanitized_product_info = product_info.replace('"', '\"')
-
-            # Debug: Log sanitized_product_info before invoking the agent
-            print(f"\n🔍 Debug: Sanitized product info: {sanitized_product_info}")
-
-            # Save to json using filename
-            with open(json_path, "w", encoding="utf-8") as json_file:
-                json.dump(product_info, json_file, ensure_ascii=False, indent=4)
-            print(f"🔍 Debug: Product information saved to {json_path}")
-        else:
-            with open(json_path, "r", encoding="utf-8") as json_file:
-                product_info = json.load(json_file)
                 # Sanitize product_info to escape double quotes
                 sanitized_product_info = product_info.replace('"', '\"')
-                print(f"🔍 Debug: Product information loaded from {json_path}")
-        
-        # === Step 2: Follow-up (use memory) ===
-        print("\n🧠 Step 2: Searching for information...")
-        json_filename = os.path.splitext(pdf_file)[0] + "_2.json"
-        print(f"\njson_filename: Searching for {json_filename}")
-        json_path = os.path.join(json_folder, json_filename)
 
-        if not os.path.exists(json_path):
-            try:
-                response2 = agent.invoke({
-                    "input": f"""use duckduckgo_search to find information about {sanitized_product_info}. 
-                    Find the newest version of SDS URL and return it in JSON format:
-                    {{
-                        \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
-                        \"latest_sds_version\": \"(e.g., 2.0)\",
-                        \"latest_sds_date\": \"(e.g., 27 October 2015)\",
-                    }}
-                    If one or some data is not available, just fill with empty string. 
-                    Return the response as a string, not a JSON object."""
-                })
-            
-                # write to json using filename
+                # Debug: Log sanitized_product_info before invoking the agent
+                print(f"\n🔍 Debug: Sanitized product info: {sanitized_product_info}")
+
+                # Save to json using filename
                 with open(json_path, "w", encoding="utf-8") as json_file:
-                    json.dump(response2["output"], json_file, ensure_ascii=False, indent=4)
-                print(f"🔍 Debug: Response 2 saved to {json_path}")
-            except Exception as e:
-                print(f"🚨🚨🚨 Error during agent invocation for file {pdf_file}: {e}")
-                # Set default values in case of error
-                response2 = {
-                    "output": json.dumps({
-                        "latest_sds_url": f"🚨🚨🚨 ERROR: {e}",
-                        "latest_sds_version": "",
-                        "latest_sds_date": ""
-                    })
-                }
-                # continue
-        else:
-            with open(json_path, "r", encoding="utf-8") as json_file:
-                response2 = {
-                    "output": json.load(json_file)
-                }
-                print(f"🔍 Debug: Response 2 loaded and parsed from {json_path}: {response2}")
+                    json.dump(product_info, json_file, ensure_ascii=False, indent=4)
+                print(f"🔍 Debug: Product information saved to {json_path}")
+            else:
+                with open(json_path, "r", encoding="utf-8") as json_file:
+                    product_info = json.load(json_file)
+                    # Sanitize product_info to escape double quotes
+                    sanitized_product_info = product_info.replace('"', '\"')
+                    print(f"🔍 Debug: Product information loaded from {json_path}")
+            
+            # === Step 2: Follow-up (use memory) ===
+            print("\n🧠 Step 2: Searching for information...")
+            json_filename = os.path.splitext(pdf_file)[0] + "_2.json"
+            print(f"\njson_filename: Searching for {json_filename}")
+            json_path = os.path.join(json_folder, json_filename)
 
-        print("\n📝 Response 2:\n", response2["output"])
+            if not os.path.exists(json_path):
+                try:
+                    response2 = agent.invoke({
+                        "input": f"""use duckduckgo_search to find information about {sanitized_product_info}. 
+                        Find the newest version of SDS URL and return it in JSON format:
+                        {{
+                            \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
+                            \"latest_sds_version\": \"(e.g., 2.0)\",
+                            \"latest_sds_date\": \"(e.g., 27 October 2015)\",
+                        }}
+                        If one or some data is not available, just fill with empty string. 
+                        Return the response as a string, not a JSON object."""
+                    })
+                
+                    # write to json using filename
+                    with open(json_path, "w", encoding="utf-8") as json_file:
+                        json.dump(response2["output"], json_file, ensure_ascii=False, indent=4)
+                    print(f"🔍 Debug: Response 2 saved to {json_path}")
+                except Exception as e:
+                    print(f"🚨🚨🚨 Error during agent invocation for file {pdf_file}: {e}")
+                    # Set default values in case of error
+                    response2 = {
+                        "output": json.dumps({
+                            "latest_sds_url": f"🚨🚨🚨 ERROR: {e}",
+                            "latest_sds_version": "",
+                            "latest_sds_date": ""
+                        })
+                    }
+                    # continue
+            else:
+                with open(json_path, "r", encoding="utf-8") as json_file:
+                    response2 = {
+                        "output": json.load(json_file)
+                    }
+                    print(f"🔍 Debug: Response 2 loaded and parsed from {json_path}: {response2}")
+
+            print("\n📝 Response 2:\n", response2["output"])
 
         # === Optional: View memory log ===
         # print("\n📜 Agent Memory:\n", memory.buffer)
