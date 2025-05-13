@@ -11,6 +11,22 @@ import csv
 import json
 import time
 
+from langchain_google_community import GoogleSearchAPIWrapper
+search = GoogleSearchAPIWrapper()
+
+# === Tool: Google Search ===
+@tool
+def google_search(query: str) -> str:
+    """Searches Google and returns top 3 results."""
+    results = search.results(query, 3)
+    output = []
+
+    print(f"✅ Google search results for query {query}: {results}")
+    for r in results:
+        output.append(f"{r['title']} - {r['link']}\n{r['snippet']}")
+    return "\n\n".join(output)
+            
+
 # === Tool: Get PDF content ===
 @tool
 def get_pdf_content() -> str:
@@ -21,23 +37,12 @@ def get_pdf_content() -> str:
 @tool
 def duckduckgo_search(query: str) -> str:
     """Searches DuckDuckGo and returns top 3 results."""
-    retries = 3
-    delay = 5  # seconds
-    for attempt in range(retries):
-        try:
-            with DDGS() as ddgs:
-                results = ddgs.text(query, max_results=3)
-                output = []
-                for r in results:
-                    output.append(f"{r['title']} - {r['href']}\n{r['body']}")
-                return "\n\n".join(output)
-        except Exception as e:
-            if "Ratelimit" in str(e):
-                print(f"Rate limit hit. Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                raise e
-    raise Exception("Failed to fetch results after multiple retries.")
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=3)
+        output = []
+        for r in results:
+            output.append(f"{r['title']} - {r['href']}\n{r['body']}")
+        return "\n\n".join(output)
 
 # === LLM: OpenAI ===
 llm = ChatOpenAI(
@@ -59,6 +64,11 @@ tools = [
         name="duckduckgo_search",
         description="Searches DuckDuckGo and returns top 3 results.",
         func=duckduckgo_search
+    ),
+    Tool(
+        name="google_search",
+        description="Searches Google and returns top 3 results.",
+        func=google_search
     ),
 ]
 
@@ -215,7 +225,7 @@ for pdf_file in sorted(os.listdir(pdfs_folder)):
             if not hasValidJson:
                 try:
                     response2 = agent.invoke({
-                        "input": f"""use duckduckgo_search to find information about {sanitized_product_info}. 
+                        "input": f"""use google_search to find information about {sanitized_product_info}. 
                         Find the newest version of SDS URL and return it in JSON format:
                         {{
                             \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
