@@ -27,12 +27,15 @@ def fetch_html_content(url: str) -> str | None:
 def extract_text_from_html(html_content: str) -> str:
     """
     Parses HTML content and extracts all visible text.
+    If the marker "1.\nPDF" is found, text extraction starts from this marker.
+    Otherwise, an empty string is returned.
 
     Args:
         html_content: The HTML content as a string.
 
     Returns:
-        A single string containing all extracted text.
+        A single string containing all extracted text starting from the marker, 
+        or an empty string if the marker is not found.
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -47,8 +50,19 @@ def extract_text_from_html(html_content: str) -> str:
     lines = (line.strip() for line in text.splitlines())
     # Drop blank lines
     cleaned_text = '\n'.join(line for line in lines if line)
-    
-    return cleaned_text
+
+    start_marker = "1.\nPDF"  # Define the marker to look for
+    start_marker = "1."  # Define the marker to look for
+    try:
+        # Find the index of the start marker
+        start_index = cleaned_text.index(start_marker)
+        # Return the substring from the marker onwards
+        print(f"Info: Start marker '{start_marker}' found. Extracting text from this point.")
+        return cleaned_text[start_index:]
+    except ValueError:
+        # Marker not found
+        print(f"Info: Start marker '{start_marker}' not found in the extracted text. Returning empty string.")
+        return ""
 
 def search_duckduckgo_lite(query_string: str, region: str = "wt-wt") -> str | None:
     """
