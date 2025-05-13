@@ -61,6 +61,7 @@ agent = initialize_agent(
 
 # === Iterate through PDFs and write to CSV ===
 output_csv = "output.csv"
+processed_file_csv = "processed_file.csv"
 pdfs_folder = "./pdfs"
 json_folder = "./pdfs-json"
 
@@ -70,8 +71,14 @@ if not os.path.exists(output_csv):
         writer = csv.writer(file)
         writer.writerow(["document","product_name", "manufacturer_supplier", "current_sds_version", "current_sds_date", "latest_sds_url", "latest_sds_version", "latest_sds_date"])
 
+# Prepare processed_file_csv with updated headers only if it doesn't exist
+if not os.path.exists(processed_file_csv):
+    with open(processed_file_csv, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["document"])
+
 # Process each PDF file
-for pdf_file in os.listdir(pdfs_folder):
+for pdf_file in sorted(os.listdir(pdfs_folder)):
     if pdf_file.endswith(".pdf"):
         pdf_path = os.path.join(pdfs_folder, pdf_file)
 
@@ -170,10 +177,30 @@ for pdf_file in os.listdir(pdfs_folder):
             # === Step 2: Follow-up (use memory) ===
             print("\n🧠 Step 2: Searching for information...")
             json_filename = os.path.splitext(pdf_file)[0] + "_2.json"
-            print(f"\njson_filename: Searching for {json_filename}")
+            print(f"json_filename: Searching for {json_filename}")
             json_path = os.path.join(json_folder, json_filename)
 
-            if not os.path.exists(json_path):
+            hasValidJson = False
+            if os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as json_file:
+                    response2 = json.load(json_file)
+                    try:
+                        # Check if response2["output"] is valid JSON
+                        if response2["output"].strip().startswith("{") and response2["output"].strip().endswith("}"):
+                            # Parse response2 JSON
+                            response2_dict = json.loads(response2["output"])
+                            latest_sds_url = response2_dict.get("latest_sds_url", "")
+                            latest_sds_version = response2_dict.get("latest_sds_version", "")
+                            latest_sds_date = response2_dict.get("latest_sds_date", "")
+                            hasValidJson = True
+                        else:
+                            print(f"🚨 Invalid JSON in response2['output'] for file {pdf_file}: {response2['output']}")
+                            hasValidJson = False
+                    except Exception as e:
+                        print(f"🚨 Error parsing response2['output'] for file {pdf_file}: {e}")
+                        hasValidJson = False
+
+            if not hasValidJson:
                 try:
                     response2 = agent.invoke({
                         "input": f"""use duckduckgo_search to find information about {sanitized_product_info}. 
@@ -194,9 +221,10 @@ for pdf_file in os.listdir(pdfs_folder):
                 except Exception as e:
                     print(f"🚨🚨🚨 Error during agent invocation for file {pdf_file}: {e}")
                     # Set default values in case of error
+                    error_message = str(e).replace("\n", "\\n")
                     response2 = {
                         "output": json.dumps({
-                            "latest_sds_url": f"🚨🚨🚨 ERROR: {e}",
+                            "latest_sds_url": f"🚨🚨🚨 ERROR: {error_message}",
                             "latest_sds_version": "",
                             "latest_sds_date": ""
                         })
@@ -210,6 +238,12 @@ for pdf_file in os.listdir(pdfs_folder):
                     print(f"🔍 Debug: Response 2 loaded and parsed from {json_path}: {response2}")
 
             print("\n📝 Response 2:\n", response2["output"])
+
+            # === Step 3: Write to Processed CSV ===
+            with open(processed_file_csv, mode="a", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow([pdf_file])
+                print(f"🔍 Debug: Processed file {pdf_file} written to {processed_file_csv}")
 
         # === Optional: View memory log ===
         # print("\n📜 Agent Memory:\n", memory.buffer)
