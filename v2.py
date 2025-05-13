@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 import os
 import csv
 import json
+import time
 
 # === Tool: Get PDF content ===
 @tool
@@ -20,12 +21,23 @@ def get_pdf_content() -> str:
 @tool
 def duckduckgo_search(query: str) -> str:
     """Searches DuckDuckGo and returns top 3 results."""
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=3)
-        output = []
-        for r in results:
-            output.append(f"{r['title']} - {r['href']}\n{r['body']}")
-        return "\n\n".join(output)
+    retries = 3
+    delay = 5  # seconds
+    for attempt in range(retries):
+        try:
+            with DDGS() as ddgs:
+                results = ddgs.text(query, max_results=3)
+                output = []
+                for r in results:
+                    output.append(f"{r['title']} - {r['href']}\n{r['body']}")
+                return "\n\n".join(output)
+        except Exception as e:
+            if "Ratelimit" in str(e):
+                print(f"Rate limit hit. Retrying in {delay} seconds...")
+                time.sleep(delay)
+            else:
+                raise e
+    raise Exception("Failed to fetch results after multiple retries.")
 
 # === LLM: OpenAI ===
 llm = ChatOpenAI(
