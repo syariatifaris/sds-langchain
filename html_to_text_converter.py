@@ -51,7 +51,9 @@ def extract_text_from_html(html_content: str) -> str:
     # Drop blank lines
     cleaned_text = '\n'.join(line for line in lines if line)
 
-    start_marker = "1.\nPDF"  # Define the marker to look for
+    print("Info: Extracted text from HTML content.", cleaned_text)
+
+    # start_marker = "1.\nPDF"  # Define the marker to look for
     start_marker = "1."  # Define the marker to look for
     try:
         # Find the index of the start marker

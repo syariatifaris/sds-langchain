@@ -94,7 +94,8 @@ agent = initialize_agent(
     agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
     verbose=False,
     memory=memory,
-    handle_parsing_errors=True
+    handle_parsing_errors=True,
+    max_iterations=6  # Added to limit agent steps
 )
 
 # === Iterate through PDFs and write to CSV ===
@@ -241,16 +242,37 @@ for pdf_file in sorted(os.listdir(pdfs_folder)):
             if not hasValidJson:
                 try:
                     response2 = agent.invoke({
-                        "input": f"""use duckduckgo_lite_search to find information about {sanitized_product_info}. 
-                        Find the newest version of SDS URL and return it in JSON format:
-                        {{
-                            \"latest_sds_url\": \"(e.g., https://domain.com/something.pdf)\",
-                            \"latest_sds_version\": \"(e.g., 2.0)\",
-                            \"latest_sds_date\": \"(e.g., 27 October 2015)\",
-                        }}
-                        If one or some data is not available, just fill with empty string. 
-                        Return the response as a string, not a JSON object."""
+                        "input": f"""You are given product information as a JSON string: {sanitized_product_info}.
+Your primary goal is to find the newest Safety Data Sheet (SDS) for this product and return its details in a specific JSON format.
+
+Follow these instructions carefully:
+1.  **Extract Information**: From the provided JSON string (`{sanitized_product_info}`), identify the values for 'product_name' and 'manufacturer_supplier'.
+2.  **Construct Search Query**: Create a search query for the 'duckduckgo_lite_search' tool. This query MUST incorporate:
+    *   The extracted 'product_name'.
+    *   The extracted 'manufacturer_supplier'.
+    *   The literal Danish term 'Sikkerhedsdatablad'.
+    *   The file type '.pdf'.
+    *   An example query structure would be: "[product_name] [manufacturer_supplier] Sikkerhedsdatablad .pdf".
+3.  **Execute Search (Max 2 Attempts)**:
+    *   **Attempt 1**: Use the 'duckduckgo_lite_search' tool with the query constructed in step 2.
+    *   **Attempt 2 (Conditional)**: If the first search attempt does not yield a clear and relevant SDS PDF link (e.g., results are irrelevant, no PDF links, or links are to very old documents), you may make ONE additional call to 'duckduckgo_lite_search'. For this second attempt, you can refine your search query based on the results of the first, but it must still aim to find the SDS and include the key terms. Do NOT exceed two (2) calls to 'duckduckgo_lite_search' in total for this entire task.
+4.  **Analyze Results and Format Output**: After your search attempts (not exceeding two), analyze the information obtained. Your final output MUST be a single JSON string containing:
+    *   'latest_sds_url': The direct URL to the newest SDS PDF found.
+    *   'latest_sds_version': The version number of this SDS.
+    *   'latest_sds_date': The publication or revision date of this SDS.
+    *   If any of these pieces of information cannot be reliably determined from the search results, use an empty string ("") for its value in the JSON.
+5.  **Output Requirement**: Return ONLY the JSON string. Do not include any other text, conversation, or markdown formatting around the JSON.
+
+Example of the required final JSON output:
+{{
+    \\"latest_sds_url\\": \\"https://example.com/path/to/sds_v3.pdf\\",
+    \\"latest_sds_version\\": \\"3.0\\",
+    \\"latest_sds_date\\": \\"2024-01-15\\"
+}}
+"""
                     })
+
+                    print("\n📝 Response 2:\n", response2)
                 
                     # write to json using filename
                     with open(json_path, "w", encoding="utf-8") as json_file:
@@ -276,12 +298,6 @@ for pdf_file in sorted(os.listdir(pdfs_folder)):
                     print(f"🔍 Debug: Response 2 loaded and parsed from {json_path}: {response2}")
 
             print("\n📝 Response 2:\n", response2["output"])
-
-            # === Step 3: Write to Processed CSV ===
-            with open(processed_file_csv, mode="a", newline="", encoding="utf-8") as file:
-                writer = csv.writer(file)
-                writer.writerow([pdf_file])
-                print(f"🔍 Debug: Processed file {pdf_file} written to {processed_file_csv}")
 
         # === Optional: View memory log ===
         # print("\n📜 Agent Memory:\n", memory.buffer)
@@ -316,6 +332,12 @@ for pdf_file in sorted(os.listdir(pdfs_folder)):
                     latest_sds_version,
                     latest_sds_date
                 ])
+
+            # === Step 3: Write to Processed CSV ===
+            with open(processed_file_csv, mode="a", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow([pdf_file])
+                print(f"🔍 Debug: Processed file {pdf_file} written to {processed_file_csv}")
         except Exception as e:
             print(f"Error writing to CSV for file {pdf_file}: {e}")
 
